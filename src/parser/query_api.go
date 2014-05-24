@@ -101,6 +101,11 @@ func (self *SelectQuery) revertAlias(mapping map[string][]string) {
 	}
 }
 
+// Returns true if the query has having clause
+func (self *SelectQuery) HasHaving() bool {
+	return self.groupByClause.Condition != nil
+}
+
 // Returns true if the query has aggregate functions applied to the
 // columns
 func (self *SelectQuery) HasAggregates() bool {

@@ -14,6 +14,7 @@ type GroupByClause struct {
 	FillWithZero bool
 	FillValue    *Value
 	Elems        []*Value
+	Condition  *WhereCondition
 }
 
 func (self GroupByClause) GetGroupByTime() (*time.Duration, error) {
