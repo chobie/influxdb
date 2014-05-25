@@ -64,7 +64,7 @@ func CoerceValues(leftValue, rightValue *protocol.FieldValue) (interface{}, inte
 		if rightValue.StringValue == nil {
 			return nil, nil, TYPE_UNKNOWN
 		}
-		return *leftValue.StringValue, *rightValue.StringValue, TYPE_STRING
+		return leftValue.StringValue, rightValue.StringValue, TYPE_STRING
 	}
 
 	if leftValue.BoolValue != nil {

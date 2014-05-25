@@ -37,7 +37,7 @@ func (self *Point) SetTimestampInMicroseconds(t int64) {
 // for infinite and NaN values
 func (self *FieldValue) GetValue() (interface{}, bool) {
 	if self.StringValue != nil {
-		return *self.StringValue, true
+		return self.StringValue, true
 	}
 
 	if self.DoubleValue != nil {
@@ -186,7 +186,7 @@ func (self *FieldValue) Equals(other *FieldValue) bool {
 		if other.StringValue == nil {
 			return false
 		}
-		return *other.StringValue == *self.StringValue
+		return bytes.Compare(other.StringValue, self.StringValue) == 0
 	}
 	return other.GetIsNull()
 }
@@ -218,7 +218,7 @@ func (self *FieldValue) GreaterOrEqual(other *FieldValue) bool {
 		if other.StringValue == nil {
 			return other.BoolValue != nil || other.Int64Value != nil || other.DoubleValue != nil
 		}
-		return *self.StringValue >= *other.StringValue
+		return bytes.Compare(self.StringValue, other.StringValue) == 1
 	}
 	return true
 }

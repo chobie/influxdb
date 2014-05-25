@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"bytes"
 )
 
 type PointSlice []protocol.Point
@@ -1070,7 +1071,7 @@ func (self *DistinctAggregator) AggregatePoint(state interface{}, p *protocol.Po
 	} else if point.BoolValue != nil {
 		value = *point.BoolValue
 	} else if point.StringValue != nil {
-		value = *point.StringValue
+		value = point.StringValue
 	} else {
 		value = nil
 	}
@@ -1100,7 +1101,7 @@ func (self *DistinctAggregator) GetValues(state interface{}) [][]*protocol.Field
 			i := int64(v)
 			returnValues = append(returnValues, []*protocol.FieldValue{&protocol.FieldValue{Int64Value: &i}})
 		case string:
-			returnValues = append(returnValues, []*protocol.FieldValue{&protocol.FieldValue{StringValue: &v}})
+			returnValues = append(returnValues, []*protocol.FieldValue{&protocol.FieldValue{StringValue: []byte(v)}})
 		case bool:
 			returnValues = append(returnValues, []*protocol.FieldValue{&protocol.FieldValue{BoolValue: &v}})
 		case float64:
@@ -1216,7 +1217,7 @@ func (s ByPointColumnDesc) Less(i, j int) bool {
 	} else if s.PointsCollection[i].Values[0].DoubleValue != nil && s.PointsCollection[j].Values[0].DoubleValue != nil {
 		return *s.PointsCollection[i].Values[0].DoubleValue > *s.PointsCollection[j].Values[0].DoubleValue
 	} else if s.PointsCollection[i].Values[0].StringValue != nil && s.PointsCollection[j].Values[0].StringValue != nil {
-		return *s.PointsCollection[i].Values[0].StringValue > *s.PointsCollection[j].Values[0].StringValue
+		return bytes.Compare(s.PointsCollection[i].Values[0].StringValue, s.PointsCollection[j].Values[0].StringValue) == 1
 	}
 
 	return false
@@ -1251,7 +1252,7 @@ func comparePointValue(a, b *protocol.Point) bool {
 	} else if a.Values[0].DoubleValue != nil && b.Values[0].DoubleValue != nil {
 		return *a.Values[0].DoubleValue < *b.Values[0].DoubleValue
 	} else if a.Values[0].StringValue != nil && b.Values[0].StringValue != nil {
-		return *a.Values[0].StringValue < *b.Values[0].StringValue
+		return bytes.Compare(a.Values[0].StringValue, b.Values[0].StringValue) == -1
 	}
 
 	return false

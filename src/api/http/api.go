@@ -570,7 +570,7 @@ type UserDetail struct {
 
 type ContinuousQuery struct {
 	Id    int64  `json:"id"`
-	Query string `json:"query"`
+	Query []byte `json:"query"`
 }
 
 type NewContinuousQuery struct {
@@ -904,7 +904,7 @@ func (self *HttpServer) listDbContinuousQueries(w libhttp.ResponseWriter, r *lib
 		queries := make([]ContinuousQuery, 0, len(series[0].Points))
 
 		for _, point := range series[0].Points {
-			queries = append(queries, ContinuousQuery{Id: *point.Values[0].Int64Value, Query: *point.Values[1].StringValue})
+			queries = append(queries, ContinuousQuery{Id: *point.Values[0].Int64Value, Query: point.Values[1].StringValue})
 		}
 
 		return libhttp.StatusOK, queries
@@ -924,7 +924,7 @@ func (self *HttpServer) createDbContinuousQueries(w libhttp.ResponseWriter, r *l
 		values := &ContinuousQuery{}
 		json.Unmarshal(body, values)
 
-		if err := self.coordinator.CreateContinuousQuery(u, db, values.Query); err != nil {
+		if err := self.coordinator.CreateContinuousQuery(u, db, string(values.Query)); err != nil {
 			return errorToStatusCode(err), err.Error()
 		}
 		return libhttp.StatusOK, nil

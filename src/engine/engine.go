@@ -232,7 +232,7 @@ func (self *QueryEngine) SendQueryStats() {
 
 	point := &protocol.Point{
 		Values: []*protocol.FieldValue{
-			&protocol.FieldValue{StringValue: &engineName},
+			&protocol.FieldValue{StringValue: []byte(engineName)},
 			&protocol.FieldValue{Int64Value: &shardId},
 			&protocol.FieldValue{BoolValue: &shardLocal},
 			&protocol.FieldValue{DoubleValue: &runTime},

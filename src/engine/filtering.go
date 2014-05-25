@@ -23,7 +23,7 @@ func getExpressionValue(values []*parser.Value, fields []string, point *protocol
 			value, _ := strconv.ParseBool(value.Name)
 			fieldValues = append(fieldValues, &protocol.FieldValue{BoolValue: &value})
 		case parser.ValueString, parser.ValueRegex:
-			fieldValues = append(fieldValues, &protocol.FieldValue{StringValue: &value.Name})
+			fieldValues = append(fieldValues, &protocol.FieldValue{StringValue: []byte(value.Name)})
 
 		case parser.ValueTableName, parser.ValueSimpleName:
 

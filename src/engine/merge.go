@@ -68,7 +68,7 @@ func getMergeYield(table1, table2 string, ascending bool, yield func(*protocol.S
 		s.Name = &name
 		s.Fields = append(s.Fields, "_orig_series")
 		for _, p := range s.Points {
-			p.Values = append(p.Values, &protocol.FieldValue{StringValue: oldName})
+			p.Values = append(p.Values, &protocol.FieldValue{StringValue: []byte(*oldName)})
 		}
 		return yield(s)
 	})

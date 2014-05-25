@@ -96,7 +96,7 @@ func ConvertToDataStoreSeries(s ApiSeries, precision TimePrecision) (*protocol.S
 
 			switch v := value.(type) {
 			case string:
-				values = append(values, &protocol.FieldValue{StringValue: &v})
+				values = append(values, &protocol.FieldValue{StringValue: []byte(v)})
 			case float64:
 				if i := int64(v); float64(i) == v {
 					values = append(values, &protocol.FieldValue{Int64Value: &i})

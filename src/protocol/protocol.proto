@@ -1,7 +1,7 @@
 package protocol;
 
 message FieldValue {
-  optional string string_value = 1;
+  optional bytes string_value = 1;
   optional double double_value = 3;
   optional bool bool_value = 4;
   optional int64 int64_value = 5;

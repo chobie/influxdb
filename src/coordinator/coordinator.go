@@ -735,7 +735,7 @@ func (self *CoordinatorImpl) ListContinuousQueries(user common.User, db string) 
 		points = append(points, &protocol.Point{
 			Values: []*protocol.FieldValue{
 				&protocol.FieldValue{Int64Value: &queryId},
-				&protocol.FieldValue{StringValue: &queryString},
+				&protocol.FieldValue{StringValue: []byte(queryString)},
 			},
 		})
 	}
