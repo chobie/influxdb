@@ -18,9 +18,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"sort"
-	"engine"
-	"common"
 
 	log "code.google.com/p/log4go"
 	"github.com/bmizerany/pat"
@@ -220,73 +217,12 @@ type AllPointsWriter struct {
 func (self *AllPointsWriter) yield(series *protocol.Series) error {
 	oldSeries := self.memSeries[*series.Name]
 
-	f := func() error {
-		query := self.query.SelectQuery()
-		if query !=nil && query.HasHaving() {
-			having := query.GetGroupByClause().Condition
-			b, ok := having.GetBoolExpression()
-			if !ok {
-				return errors.New("Can't get boolean expression")
-			}
-
-			if (len(b.Elems) != 2) {
-				return common.NewQueryError(common.InvalidArgument, fmt.Sprintf("Currently, Having clause only support top / bottom"))
-			}
-
-			name := b.Elems[0].Name
-			index := 0
-
-			limit, err := strconv.ParseInt(b.Elems[1].Name, 10, 64)
-			if err != nil {
-				return err
-			}
-
-			// find index
-			ok = false
-			for offset, n := range series.GetFields() {
-				if n == name {
-					index = offset
-					ok = true
-					break
-				}
-			}
-
-			if !ok {
-				return common.NewQueryError(common.InvalidArgument, fmt.Sprintf("Can't find column name: %s", name))
-			}
-
-			// TODO: Currently, having clause only supports top and bottom.
-			if b.Name == "top" {
-				sort.Sort(engine.ByPointColumnDesc{self.memSeries[series.GetName()].Points, index})
-			} else if b.Name == "bottom" {
-				sort.Sort(engine.ByPointColumnAsc{self.memSeries[series.GetName()].Points, index})
-			} else {
-				return common.NewQueryError(common.InvalidArgument, fmt.Sprintf("Currently, Having clause only support top / bottom"))
-			}
-
-			if int64(len(self.memSeries[series.GetName()].Points)) > limit {
-				self.memSeries[series.GetName()].Points = self.memSeries[series.GetName()].Points[0:limit]
-			}
-		}
-		return nil
-	}
-
 	if oldSeries == nil {
 		self.memSeries[*series.Name] = series
-		err := f()
-		if err != nil {
-			return err
-		}
 		return nil
 	}
 
 	self.memSeries[series.GetName()] = MergeSeries(self.memSeries[series.GetName()], series)
-	self.memSeries[*series.Name] = series
-	err := f()
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
 

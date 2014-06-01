@@ -50,3 +50,7 @@ func (self *GroupByClause) GetString() string {
 	}
 	return buffer.String()
 }
+
+func (self *GroupByClause) GetCondition() *WhereCondition{
+	return self.Condition
+}

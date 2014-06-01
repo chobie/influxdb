@@ -359,6 +359,12 @@ func (self *ShardData) ShouldAggregateLocally(querySpec *parser.QuerySpec) bool 
 	if self.durationIsSplit && querySpec.ReadsFromMultipleSeries() {
 		return false
 	}
+
+	if querySpec.HasHaving() {
+		log.Debug("HasHaving")
+		return true
+	}
+
 	groupByInterval := querySpec.GetGroupByInterval()
 	if groupByInterval == nil {
 		if querySpec.HasAggregates() {
