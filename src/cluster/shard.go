@@ -361,7 +361,6 @@ func (self *ShardData) ShouldAggregateLocally(querySpec *parser.QuerySpec) bool 
 	}
 
 	if querySpec.HasHaving() {
-		log.Debug("HasHaving")
 		return true
 	}
 

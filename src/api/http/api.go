@@ -211,12 +211,10 @@ type AllPointsWriter struct {
 	memSeries map[string]*protocol.Series
 	w         libhttp.ResponseWriter
 	precision TimePrecision
-	query *parser.QuerySpec
 }
 
 func (self *AllPointsWriter) yield(series *protocol.Series) error {
 	oldSeries := self.memSeries[*series.Name]
-
 	if oldSeries == nil {
 		self.memSeries[*series.Name] = series
 		return nil
@@ -303,12 +301,7 @@ func (self *HttpServer) query(w libhttp.ResponseWriter, r *libhttp.Request) {
 		if r.URL.Query().Get("chunked") == "true" {
 			writer = &ChunkWriter{w, precision, false}
 		} else {
-			q, err := parser.ParseQuery(query)
-			if err != nil {
-				return errorToStatusCode(err), err.Error()
-			}
-			querySpec := parser.NewQuerySpec(user, db, q[0])
-			writer = &AllPointsWriter{map[string]*protocol.Series{}, w, precision, querySpec}
+			writer = &AllPointsWriter{map[string]*protocol.Series{}, w, precision}
 		}
 		seriesWriter := NewSeriesWriter(writer.yield)
 		err = self.coordinator.RunQuery(user, db, query, seriesWriter)
