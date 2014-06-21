@@ -5,6 +5,7 @@ import (
 	"api/graphite"
 	"api/http"
 	"api/udp"
+	"api/mackerel"
 	"cluster"
 	"configuration"
 	"coordinator"
@@ -23,6 +24,7 @@ type Server struct {
 	ClusterConfig  *cluster.ClusterConfiguration
 	HttpApi        *http.HttpServer
 	GraphiteApi    *graphite.Server
+	MackerelApi    *mackerel.MackerelServer
 	UdpApi         *udp.Server
 	UdpServers     []*udp.Server
 	AdminServer    *admin.HttpServer
@@ -64,6 +66,7 @@ func NewServer(config *configuration.Configuration) (*Server, error) {
 	httpApi.EnableSsl(config.ApiHttpSslPortString(), config.ApiHttpCertPath)
 	graphiteApi := graphite.NewServer(config, coord, clusterConfig)
 	adminServer := admin.NewHttpServer(config.AdminAssetsDir, config.AdminHttpPortString())
+	mackerelApi := mackerel.NewMackerelServer(config.MackerelDatabase, config.MackerelPortString(), config.MackerelReadTimeout, coord, coord, clusterConfig, raftServer)
 
 	return &Server{
 		RaftServer:     raftServer,
@@ -71,6 +74,7 @@ func NewServer(config *configuration.Configuration) (*Server, error) {
 		ClusterConfig:  clusterConfig,
 		HttpApi:        httpApi,
 		GraphiteApi:    graphiteApi,
+		MackerelApi:    mackerelApi,
 		Coordinator:    coord,
 		AdminServer:    adminServer,
 		Config:         config,
@@ -157,6 +161,16 @@ func (self *Server) ListenAndServe() error {
 		self.UdpServers = append(self.UdpServers, server)
 		go server.ListenAndServe()
 	}
+
+	if self.Config.MackerelEnabled {
+		if self.Config.MackerelPort <= 0 || self.Config.MackerelDatabase == "" {
+			log.Warn("Cannot start mackerel server. please check your configuration")
+		} else {
+			log.Info("Starting Mackerel Listener on port %d", self.Config.MackerelPort)
+			go self.MackerelApi.ListenAndServe()
+		}
+	}
+
 
 	log.Debug("ReportingDisabled: %s", self.Config.ReportingDisabled)
 	if !self.Config.ReportingDisabled {

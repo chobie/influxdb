@@ -84,6 +84,14 @@ type UdpInputConfig struct {
 	Database string
 }
 
+type MackerelConfig struct {
+	Enabled    bool
+	Port       int
+	Database   string
+	ReadTimeout duration `toml:"read-timeout"`
+}
+
+
 type RaftConfig struct {
 	Port    int
 	Dir     string
@@ -193,6 +201,7 @@ type InputPlugins struct {
 	Graphite        GraphiteConfig   `toml:"graphite"`
 	UdpInput        UdpInputConfig   `toml:"udp"`
 	UdpServersInput []UdpInputConfig `toml:"udp_servers"`
+	MackerelServerInput MackerelConfig `toml:"mackerel"`
 }
 
 type TomlConfiguration struct {
@@ -225,6 +234,11 @@ type Configuration struct {
 	GraphiteUdpEnabled bool
 
 	UdpServers []UdpInputConfig
+
+	MackerelEnabled    bool
+	MackerelPort int
+	MackerelDatabase   string
+	MackerelReadTimeout  time.Duration
 
 	StorageDefaultEngine  string
 	StorageMaxOpenShards  int
@@ -371,6 +385,10 @@ func parseTomlConfiguration(filename string) (*Configuration, error) {
 
 		UdpServers: tomlConfiguration.InputPlugins.UdpServersInput,
 
+		MackerelEnabled:    tomlConfiguration.InputPlugins.MackerelServerInput.Enabled,
+		MackerelPort:       tomlConfiguration.InputPlugins.MackerelServerInput.Port,
+		MackerelDatabase:   tomlConfiguration.InputPlugins.MackerelServerInput.Database,
+
 		// storage configuration
 		StorageDefaultEngine:      tomlConfiguration.Storage.DefaultEngine,
 		StorageMaxOpenShards:      tomlConfiguration.Storage.MaxOpenShards,
@@ -511,4 +529,12 @@ func (self *Configuration) ProtobufListenString() string {
 
 func (self *Configuration) RaftListenString() string {
 	return fmt.Sprintf("%s:%d", self.BindAddress, self.RaftServerPort)
+}
+
+func (self *Configuration) MackerelPortString() string {
+	if self.MackerelPort <= 0 {
+		return ""
+	}
+
+	return fmt.Sprintf("%s:%d", self.BindAddress, self.MackerelPort)
 }
