@@ -114,6 +114,7 @@ type LocalShardDb interface {
 	Write(database string, series []*p.Series) error
 	Query(*parser.QuerySpec, QueryProcessor) error
 	DropFields(fields []*metastore.Field) error
+	Get(*parser.QuerySpec, QueryProcessor) error
 	IsClosed() bool
 }
 
@@ -239,6 +240,38 @@ func (self *ShardData) Write(request *p.Request) error {
 func (self *ShardData) WriteLocalOnly(request *p.Request) error {
 	self.store.Write(request)
 	return nil
+}
+
+func (self *ShardData) Get(querySpec *parser.QuerySpec, response chan *p.Response) {
+	log.Debug("GET: shard %d, query '%s'", self.Id(), querySpec.GetQueryString())
+	defer common.RecoverFunc(querySpec.Database(), querySpec.GetQueryString(), func(err interface{}) {
+			response <- &p.Response{Type: &endStreamResponse, ErrorMessage: p.String(fmt.Sprintf("%s", err))}
+	})
+
+	if self.IsLocal {
+		var processor QueryProcessor
+		var err error
+
+		query := querySpec.SelectQuery()
+		processor, err = engine.NewQueryEngine(query, response)
+		processor = engine.NewSinglePointEngine(query, processor)
+
+		shard, err := self.store.GetOrCreateShard(self.id)
+		if err != nil {
+			response <- &p.Response{Type: &endStreamResponse, ErrorMessage: p.String(err.Error())}
+			log.Error("Error while getting shards: %s", err)
+			return
+		}
+		defer self.store.ReturnShard(self.id)
+		err = shard.Get(querySpec, processor)
+		processor.Close()
+		if err != nil {
+			response <- &p.Response{Type: &endStreamResponse, ErrorMessage: p.String(err.Error())}
+		}
+		response <- &p.Response{Type: &endStreamResponse}
+		return
+	}
+	response <- &p.Response{Type: &endStreamResponse}
 }
 
 func (self *ShardData) Query(querySpec *parser.QuerySpec, response chan *p.Response) {

@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"strconv"
 
 	"code.google.com/p/goprotobuf/proto"
 	log "code.google.com/p/log4go"
@@ -93,6 +94,185 @@ func (self *Shard) Write(database string, series []*protocol.Series) error {
 	return self.db.BatchPut(wb)
 }
 
+
+func (self *Shard) Get(querySpec *parser.QuerySpec, processor cluster.QueryProcessor) error {
+	seriesAndColumns := querySpec.SelectQuery().GetReferencedColumns()
+	if !self.hasReadAccess(querySpec) {
+		return errors.New("User does not have access to one or more of the series requested.")
+	}
+
+
+	for series, columns := range seriesAndColumns {
+		// series: &{collectdmacbook_local.interface-bridge0.if_errors.tx  %!s(parser.ValueType=6) [] %!s(*regexp.Regexp=<nil>) %!s(bool=false)},
+		// columns: [*]
+		err := self.executeGetForSeries(querySpec, series.Name, columns, processor)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (self *Shard) executeGetForSeries(querySpec *parser.QuerySpec, seriesName string, columns []string, processor cluster.QueryProcessor) error {
+	startTimeBytes := self.byteArrayForTime(querySpec.GetStartTime())
+	endTimeBytes := self.byteArrayForTime(querySpec.GetEndTime())
+	fields, err := self.getFieldsForSeries(querySpec.Database(), seriesName, columns)
+
+	if err != nil {
+		// because a db is distributed across the cluster, it's possible we don't have the series indexed here. ignore
+		switch err := err.(type) {
+		case FieldLookupError:
+			log.Debug("Cannot find fields %v", columns)
+			return nil
+		default:
+			log.Error("Error looking up fields for %s: %s", seriesName, err)
+			return fmt.Errorf("Error looking up fields for %s: %s", seriesName, err)
+		}
+	}
+
+	fieldCount := len(fields)
+	rawColumnValues := make([]rawColumnValue, fieldCount, fieldCount)
+	query := querySpec.SelectQuery()
+
+	//aliases := query.GetTableAliases(seriesName)
+	fieldNames, iterators := self.getIterators(fields, startTimeBytes, endTimeBytes, query.Ascending)
+	defer func() {
+		for _, it := range iterators {
+			it.Close()
+		}
+	}()
+
+	seriesOutgoing := &protocol.Series{Name: protocol.String(seriesName), Fields: fieldNames, Points: make([]*protocol.Point, 0, self.pointBatchSize)}
+	buffer := bytes.NewBuffer(nil)
+	valueBuffer := proto.NewBuffer(nil)
+
+	sel := querySpec.SelectQuery()
+	where := sel.GetWhereCondition()
+	bool, _ := where.GetBoolExpression()
+
+	index := -1
+	for idx, name := range fieldNames {
+		if name == bool.Elems[0].Name {
+			index = idx
+			break
+		}
+	}
+
+	if index < 0 {
+		return fmt.Errorf("Error looking up fields for %s: %s", bool.Elems[0], bool.Elems[0])
+	}
+
+	it := iterators[index]
+	hit := false
+	var v rawColumnValue
+
+	next := func(it storage.Iterator) {
+		if query.Ascending {
+			it.Next()
+		} else {
+			it.Prev()
+		}
+	}
+
+	for ; it.Valid(); next(it) {
+		key := it.Key()
+		if len(key) < 16 {
+			continue
+		}
+
+		if !isPointInRange(fields[index].Id, startTimeBytes, endTimeBytes, key) {
+			continue
+		}
+
+		value := it.Value()
+		sequenceNumber := key[16:]
+		rawTime := key[8:16]
+		v = rawColumnValue{
+			time: rawTime,
+			sequence: sequenceNumber,
+			value: value,
+		}
+
+		fv := &protocol.FieldValue{}
+		valueBuffer.SetBuf(value)
+		err := valueBuffer.Unmarshal(fv)
+		if err != nil {
+			log.Error("Error while running query: %s", err)
+			return err
+		}
+
+		if fv.Int64Value != nil  {
+			comp, _ := strconv.ParseInt(bool.Elems[1].Name, 10, 64)
+			if *fv.Int64Value == comp {
+				hit = true
+				break
+			}
+		} else if fv.StringValue != nil {
+			comp := bool.Elems[1].Name
+			if *fv.StringValue == comp {
+				hit = true
+				break
+			}
+		}
+	}
+
+	if hit {
+		var sequence uint64
+		var t uint64
+		var pointTimeRaw []byte
+		var pointSequenceRaw []byte
+
+		point := &protocol.Point{Values: make([]*protocol.FieldValue, fieldCount, fieldCount)}
+		pointTimeRaw, pointSequenceRaw = v.updatePointTimeAndSequence(pointTimeRaw,
+			pointSequenceRaw, query.Ascending)
+
+		buffer.Reset()
+		buffer.Write(pointSequenceRaw)
+		binary.Read(buffer, binary.BigEndian, &sequence)
+		buffer.Reset()
+		buffer.Write(pointTimeRaw)
+		binary.Read(buffer, binary.BigEndian, &t)
+
+		timeAndSequenceBuffer := bytes.NewBuffer(make([]byte, 0, 16))
+		binary.Write(timeAndSequenceBuffer, binary.BigEndian, t)
+		binary.Write(timeAndSequenceBuffer, binary.BigEndian, sequence)
+		timeAndSequenceBytes := timeAndSequenceBuffer.Bytes()
+
+		for i, itr := range iterators {
+			if i == index {
+				rawColumnValues[i] = v
+				continue
+			}
+
+			pointKey := append(fields[i].Id, timeAndSequenceBytes...)
+			itr.Seek(pointKey)
+			val := itr.Value()
+			rawColumnValues[i].value = val
+		}
+
+		for i, v := range rawColumnValues {
+			f := &protocol.FieldValue{}
+			valueBuffer.SetBuf(v.value)
+			err := valueBuffer.Unmarshal(f)
+			if err != nil {
+				log.Error("Error while running query: %s", err)
+				return err
+			}
+			point.Values[i] = f
+		}
+
+		time := self.convertUintTimestampToInt64(&t)
+		point.SetTimestampInMicroseconds(time)
+		point.SequenceNumber = &sequence
+
+		seriesOutgoing.Points = append(seriesOutgoing.Points, point)
+		processor.YieldSeries(seriesOutgoing)
+	}
+
+	return nil
+}
+
+
 func (self *Shard) Query(querySpec *parser.QuerySpec, processor cluster.QueryProcessor) error {
 	if querySpec.IsListSeriesQuery() {
 		return self.executeListSeriesQuery(querySpec, processor)
@@ -147,6 +327,7 @@ func (self *Shard) executeQueryForSeries(querySpec *parser.QuerySpec, seriesName
 	query := querySpec.SelectQuery()
 
 	aliases := query.GetTableAliases(seriesName)
+
 	if querySpec.IsSinglePointQuery() {
 		series, err := self.fetchSinglePoint(querySpec, seriesName, fields)
 		if err != nil {

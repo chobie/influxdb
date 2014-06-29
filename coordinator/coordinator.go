@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+//	"regexp"
 
 	"code.google.com/p/goprotobuf/proto"
 	log "code.google.com/p/log4go"
@@ -76,6 +77,106 @@ func NewCoordinatorImpl(
 
 	return coordinator
 }
+
+//c.Get(user, db, key, value, seriesWriter)
+func (self *CoordinatorImpl) Get(user common.User, database string, series, key, value string, seriesWriter SeriesWriter) error {
+	log.Info("Start Get: db: %s, u: %s, key: %s, value: %s", database, user.GetName(), key, value)
+
+	queryString := fmt.Sprintf("select * from %s where %s = '%s'", series, key, value)
+	q, err := parser.ParseQuery(queryString)
+	if err != nil {
+		return err
+	}
+
+	for _, query := range q {
+		querySpec := parser.NewQuerySpec(user, database, query)
+		if err := self.checkPermission(user, querySpec); err != nil {
+			return err
+		}
+		return self.runGet(querySpec, seriesWriter)
+	}
+
+	seriesWriter.Close()
+	return nil
+}
+
+func (self *CoordinatorImpl) runGet(querySpec *parser.QuerySpec, seriesWriter SeriesWriter) error {
+	shards, processor, seriesClosed, err := self.getShardsAndProcessor(querySpec, seriesWriter)
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		if processor != nil {
+			processor.Close()
+			<-seriesClosed
+		} else {
+			seriesWriter.Close()
+		}
+	}()
+
+	shardConcurrentLimit := 1
+	log.Debug("Shard concurrent limit: %d", shardConcurrentLimit)
+
+	errors := make(chan error, shardConcurrentLimit)
+	for i := 0; i < shardConcurrentLimit; i++ {
+		errors <- nil
+	}
+
+	responseChannels := make(chan (<-chan *protocol.Response), shardConcurrentLimit)
+	go self.readFromResponseChannels(processor, seriesWriter, querySpec.IsExplainQuery(), errors, responseChannels)
+
+	err = self.queryShards2(querySpec, shards, errors, responseChannels)
+	// make sure we read the rest of the errors and responses
+	for _err := range errors {
+		if err == nil {
+			err = _err
+		}
+	}
+
+	for responsechan := range responseChannels {
+		for response := range responsechan {
+			if response.GetType() != endStreamResponse {
+				continue
+			}
+			if response.ErrorMessage != nil && err == nil {
+				err = common.NewQueryError(common.InvalidArgument, *response.ErrorMessage)
+			}
+			break
+		}
+	}
+	return err
+}
+
+func (self *CoordinatorImpl) queryShards2(querySpec *parser.QuerySpec, shards []*cluster.ShardData,
+errors <-chan error,
+responseChannels chan<- (<-chan *protocol.Response)) error {
+	defer close(responseChannels)
+
+	for i := 0; i < len(shards); i++ {
+		// readFromResponseChannels will insert an error if an error
+		// occured while reading the response. This should immediately
+		// stop reading from shards
+		err := <-errors
+		if err != nil {
+			return err
+		}
+		shard := shards[i]
+		bufferSize := shard.QueryResponseBufferSize(querySpec, self.config.StoragePointBatchSize)
+		if bufferSize > self.config.ClusterMaxResponseBufferSize {
+			bufferSize = self.config.ClusterMaxResponseBufferSize
+		}
+		responseChan := make(chan *protocol.Response, bufferSize)
+		// We query shards for data and stream them to query processor
+		log.Debug("QUERYING2: shard: %d %v", i, shard.String())
+		go shard.Get(querySpec, responseChan)
+		responseChannels <- responseChan
+	}
+
+	return nil
+}
+
+
 
 func (self *CoordinatorImpl) RunQuery(user common.User, database string, queryString string, seriesWriter SeriesWriter) (err error) {
 	log.Info("Start Query: db: %s, u: %s, q: %s", database, user.GetName(), queryString)

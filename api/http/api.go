@@ -108,6 +108,7 @@ func (self *HttpServer) Serve(listener net.Listener) {
 	// Run the given query and return an array of series or a chunked response
 	// with each batch of points we get back
 	self.registerEndpoint(p, "get", "/db/:db/series", self.query)
+	self.registerEndpoint(p, "get", "/db/:db/get", self.get)
 
 	// Write points to the given database
 	self.registerEndpoint(p, "post", "/db/:db/series", self.writePoints)
@@ -332,6 +333,39 @@ func (self *HttpServer) query(w libhttp.ResponseWriter, r *libhttp.Request) {
 		return -1, nil
 	})
 }
+
+func (self *HttpServer) get(w libhttp.ResponseWriter, r *libhttp.Request) {
+	series := r.URL.Query().Get("s")
+	key := r.URL.Query().Get("k")
+	value := r.URL.Query().Get("v")
+	db := r.URL.Query().Get(":db")
+
+	pretty := isPretty(r)
+	self.tryAsDbUserAndClusterAdmin(w, r, func(user User) (int, interface{}) {
+			var writer Writer
+			precision, err := TimePrecisionFromString(r.URL.Query().Get("time_precision"))
+			if err != nil {
+				return libhttp.StatusBadRequest, err.Error()
+			}
+
+			if r.URL.Query().Get("chunked") == "true" {
+				writer = &ChunkWriter{w, precision, false, pretty}
+			} else {
+				writer = &AllPointsWriter{map[string]*protocol.Series{}, w, precision, pretty}
+			}
+
+			seriesWriter := NewSeriesWriter(writer.yield)
+			if c, ok := self.coordinator.(*coordinator.CoordinatorImpl); ok {
+				err = c.Get(user, db, series, key, value, seriesWriter)
+				if err != nil {
+					return errorToStatusCode(err), err.Error()
+				}
+				writer.done()
+			}
+			return -1, nil
+	})
+}
+
 
 func errorToStatusCode(err error) int {
 	switch err.(type) {
