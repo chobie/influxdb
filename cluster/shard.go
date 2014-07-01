@@ -114,7 +114,7 @@ type LocalShardDb interface {
 	Write(database string, series []*p.Series) error
 	Query(*parser.QuerySpec, QueryProcessor) error
 	DropFields(fields []*metastore.Field) error
-	Get(*parser.QuerySpec, QueryProcessor) error
+	Get(*parser.QuerySpec, QueryProcessor, chan error) error
 	IsClosed() bool
 }
 
@@ -242,7 +242,7 @@ func (self *ShardData) WriteLocalOnly(request *p.Request) error {
 	return nil
 }
 
-func (self *ShardData) Get(querySpec *parser.QuerySpec, response chan *p.Response) {
+func (self *ShardData) Get(querySpec *parser.QuerySpec, response chan *p.Response, errors chan error) {
 	log.Debug("GET: shard %d, query '%s'", self.Id(), querySpec.GetQueryString())
 	defer common.RecoverFunc(querySpec.Database(), querySpec.GetQueryString(), func(err interface{}) {
 			response <- &p.Response{Type: &endStreamResponse, ErrorMessage: p.String(fmt.Sprintf("%s", err))}
@@ -263,7 +263,7 @@ func (self *ShardData) Get(querySpec *parser.QuerySpec, response chan *p.Respons
 			return
 		}
 		defer self.store.ReturnShard(self.id)
-		err = shard.Get(querySpec, processor)
+		err = shard.Get(querySpec, processor, errors)
 		processor.Close()
 		if err != nil {
 			response <- &p.Response{Type: &endStreamResponse, ErrorMessage: p.String(err.Error())}

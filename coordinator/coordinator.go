@@ -82,7 +82,7 @@ func NewCoordinatorImpl(
 func (self *CoordinatorImpl) Get(user common.User, database string, series, key, value string, seriesWriter SeriesWriter) error {
 	log.Info("Start Get: db: %s, u: %s, key: %s, value: %s", database, user.GetName(), key, value)
 
-	queryString := fmt.Sprintf("select * from %s where %s = '%s'", series, key, value)
+	queryString := fmt.Sprintf("select * from %s where %s = %s", series, key, value)
 	q, err := parser.ParseQuery(queryString)
 	if err != nil {
 		return err
@@ -99,6 +99,11 @@ func (self *CoordinatorImpl) Get(user common.User, database string, series, key,
 	seriesWriter.Close()
 	return nil
 }
+
+type ShardShouldAbort struct {
+}
+
+func (e *ShardShouldAbort) Error() string { return ""}
 
 func (self *CoordinatorImpl) runGet(querySpec *parser.QuerySpec, seriesWriter SeriesWriter) error {
 	shards, processor, seriesClosed, err := self.getShardsAndProcessor(querySpec, seriesWriter)
@@ -129,6 +134,10 @@ func (self *CoordinatorImpl) runGet(querySpec *parser.QuerySpec, seriesWriter Se
 	err = self.queryShards2(querySpec, shards, errors, responseChannels)
 	// make sure we read the rest of the errors and responses
 	for _err := range errors {
+		if _, ok := _err.(*ShardShouldAbort); ok {
+			_err = nil
+		}
+
 		if err == nil {
 			err = _err
 		}
@@ -149,7 +158,7 @@ func (self *CoordinatorImpl) runGet(querySpec *parser.QuerySpec, seriesWriter Se
 }
 
 func (self *CoordinatorImpl) queryShards2(querySpec *parser.QuerySpec, shards []*cluster.ShardData,
-errors <-chan error,
+errors chan error,
 responseChannels chan<- (<-chan *protocol.Response)) error {
 	defer close(responseChannels)
 
@@ -169,7 +178,7 @@ responseChannels chan<- (<-chan *protocol.Response)) error {
 		responseChan := make(chan *protocol.Response, bufferSize)
 		// We query shards for data and stream them to query processor
 		log.Debug("QUERYING2: shard: %d %v", i, shard.String())
-		go shard.Get(querySpec, responseChan)
+		go shard.Get(querySpec, responseChan, errors)
 		responseChannels <- responseChan
 	}
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 	"strconv"
+	"coordinator"
 
 	"code.google.com/p/goprotobuf/proto"
 	log "code.google.com/p/log4go"
@@ -95,7 +96,7 @@ func (self *Shard) Write(database string, series []*protocol.Series) error {
 }
 
 
-func (self *Shard) Get(querySpec *parser.QuerySpec, processor cluster.QueryProcessor) error {
+func (self *Shard) Get(querySpec *parser.QuerySpec, processor cluster.QueryProcessor, e chan error) error {
 	seriesAndColumns := querySpec.SelectQuery().GetReferencedColumns()
 	if !self.hasReadAccess(querySpec) {
 		return errors.New("User does not have access to one or more of the series requested.")
@@ -105,7 +106,7 @@ func (self *Shard) Get(querySpec *parser.QuerySpec, processor cluster.QueryProce
 	for series, columns := range seriesAndColumns {
 		// series: &{collectdmacbook_local.interface-bridge0.if_errors.tx  %!s(parser.ValueType=6) [] %!s(*regexp.Regexp=<nil>) %!s(bool=false)},
 		// columns: [*]
-		err := self.executeGetForSeries(querySpec, series.Name, columns, processor)
+		err := self.executeGetForSeries(querySpec, series.Name, columns, processor, e)
 		if err != nil {
 			return err
 		}
@@ -113,7 +114,7 @@ func (self *Shard) Get(querySpec *parser.QuerySpec, processor cluster.QueryProce
 	return nil
 }
 
-func (self *Shard) executeGetForSeries(querySpec *parser.QuerySpec, seriesName string, columns []string, processor cluster.QueryProcessor) error {
+func (self *Shard) executeGetForSeries(querySpec *parser.QuerySpec, seriesName string, columns []string, processor cluster.QueryProcessor, e chan error) error {
 	startTimeBytes := self.byteArrayForTime(querySpec.GetStartTime())
 	endTimeBytes := self.byteArrayForTime(querySpec.GetEndTime())
 	fields, err := self.getFieldsForSeries(querySpec.Database(), seriesName, columns)
@@ -267,6 +268,7 @@ func (self *Shard) executeGetForSeries(querySpec *parser.QuerySpec, seriesName s
 
 		seriesOutgoing.Points = append(seriesOutgoing.Points, point)
 		processor.YieldSeries(seriesOutgoing)
+		e <- &coordinator.ShardShouldAbort{}
 	}
 
 	return nil
