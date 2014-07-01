@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
-//	"regexp"
+	"strconv"
 
 	"code.google.com/p/goprotobuf/proto"
 	log "code.google.com/p/log4go"
@@ -81,8 +81,17 @@ func NewCoordinatorImpl(
 //c.Get(user, db, key, value, seriesWriter)
 func (self *CoordinatorImpl) Get(user common.User, database string, series, key, value string, seriesWriter SeriesWriter) error {
 	log.Info("Start Get: db: %s, u: %s, key: %s, value: %s", database, user.GetName(), key, value)
+	var queryString string
 
-	queryString := fmt.Sprintf("select * from %s where %s = %s", series, key, value)
+	if i64, err := strconv.ParseInt(value, 10, 64); err == nil {
+		queryString = fmt.Sprintf("select * from %s where %s = %d", series, key, i64)
+	} else if f64, err := strconv.ParseFloat(value, 64); err == nil {
+		queryString = fmt.Sprintf("select * from %s where %s = %f", series, key, f64)
+	} else {
+		// TODO(chobie): should quote value.
+		queryString = fmt.Sprintf("select * from %s where %s = '%f'", series, key, value)
+	}
+
 	q, err := parser.ParseQuery(queryString)
 	if err != nil {
 		return err
@@ -134,13 +143,13 @@ func (self *CoordinatorImpl) runGet(querySpec *parser.QuerySpec, seriesWriter Se
 	err = self.queryShards2(querySpec, shards, errors, responseChannels)
 	// make sure we read the rest of the errors and responses
 	for _err := range errors {
-		if _, ok := _err.(*ShardShouldAbort); ok {
-			_err = nil
-		}
-
 		if err == nil {
 			err = _err
 		}
+	}
+
+	if _, ok := err.(*ShardShouldAbort); ok {
+		err = nil
 	}
 
 	for responsechan := range responseChannels {
