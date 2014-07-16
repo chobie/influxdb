@@ -1,8 +1,8 @@
 package engine
 
 import (
-	"parser"
-	p "protocol"
+	"github.com/influxdb/influxdb/parser"
+	p "github.com/influxdb/influxdb/protocol"
 
 	log "code.google.com/p/log4go"
 )

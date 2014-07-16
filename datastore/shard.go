@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 	"strconv"
-	"coordinator"
+	"github.com/influxdb/influxdb/coordinator"
 
 	"code.google.com/p/goprotobuf/proto"
 	log "code.google.com/p/log4go"
@@ -181,7 +181,7 @@ func (self *Shard) executeGetForSeries(querySpec *parser.QuerySpec, seriesName s
 			continue
 		}
 
-		if !isPointInRange(fields[index].Id, startTimeBytes, endTimeBytes, key) {
+		if !isPointInRange(fields[index].IdAsBytes(), startTimeBytes, endTimeBytes, key) {
 			continue
 		}
 
@@ -245,8 +245,11 @@ func (self *Shard) executeGetForSeries(querySpec *parser.QuerySpec, seriesName s
 				continue
 			}
 
-			pointKey := append(fields[i].Id, timeAndSequenceBytes...)
-			itr.Seek(pointKey)
+			pointKeyBuff := bytes.NewBuffer(make([]byte, 0, 24))
+			pointKeyBuff.Write(fields[i].IdAsBytes())
+			pointKeyBuff.Write(timeAndSequenceBytes)
+
+			itr.Seek(pointKeyBuff.Bytes())
 			val := itr.Value()
 			rawColumnValues[i].value = val
 		}
