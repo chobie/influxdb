@@ -16,6 +16,7 @@ import (
 	"github.com/influxdb/influxdb/coordinator"
 	"github.com/influxdb/influxdb/server"
 	"github.com/jmhodges/levigo"
+	"github.com/influxdb/influxdb/stat"
 )
 
 func setupLogging(loggingLevel, logFile string) {
@@ -134,6 +135,8 @@ func main() {
 			panic(err)
 		}
 	}
+	stat.Metrics.Pid.Set(int64(os.Getpid()))
+	stat.Metrics.Version.Set(version)
 
 	if config.BindAddress == "" {
 		log.Info("Starting Influx Server %s...", version)

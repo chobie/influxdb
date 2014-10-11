@@ -17,6 +17,7 @@ import (
 	"github.com/influxdb/influxdb/datastore/storage"
 	"github.com/influxdb/influxdb/metastore"
 	"github.com/influxdb/influxdb/protocol"
+	"github.com/influxdb/influxdb/stat"
 )
 
 type ShardDatastore struct {
@@ -66,6 +67,7 @@ func NewShardDatastore(config *configuration.Configuration, metaStore *metastore
 		return nil, err
 	}
 
+	stat.Metrics.Shard.Opening.Increment()
 	return &ShardDatastore{
 		baseDbDir:      baseDbDir,
 		config:         config,
@@ -82,6 +84,7 @@ func NewShardDatastore(config *configuration.Configuration, metaStore *metastore
 
 func (self *ShardDatastore) Close() {
 	self.shardsLock.Lock()
+	stat.Metrics.Shard.Opening.Decrement()
 	defer self.shardsLock.Unlock()
 	for _, shard := range self.shards {
 		shard.close()

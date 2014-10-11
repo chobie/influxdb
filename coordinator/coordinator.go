@@ -14,6 +14,7 @@ import (
 	"github.com/influxdb/influxdb/engine"
 	"github.com/influxdb/influxdb/parser"
 	"github.com/influxdb/influxdb/protocol"
+	"github.com/influxdb/influxdb/stat"
 )
 
 type Coordinator struct {
@@ -60,6 +61,7 @@ func (self *Coordinator) RunQuery(user common.User, database string, queryString
 }
 
 func (self *Coordinator) runSingleQuery(user common.User, db string, q *parser.Query, p engine.Processor) error {
+	stat.Metrics.Coordinator.CmdQuery.Increment()
 	querySpec := parser.NewQuerySpec(user, db, q)
 
 	if ok, err := self.permissions.CheckQueryPermissions(user, db, querySpec); !ok {
@@ -102,6 +104,7 @@ func (self *Coordinator) runListContinuousQueries(user common.User, db string, p
 }
 
 func (self *Coordinator) runListSeriesQuery(querySpec *parser.QuerySpec, p engine.Processor) error {
+	stat.Metrics.Coordinator.CmdListSeries.Increment()
 	allSeries := self.clusterConfiguration.MetaStore.GetSeriesForDatabase(querySpec.Database())
 	matchingSeries := allSeries
 	q := querySpec.Query().GetListSeriesQuery()
@@ -153,6 +156,7 @@ func (self *Coordinator) runListSeriesQuery(querySpec *parser.QuerySpec, p engin
 }
 
 func (self *Coordinator) runDeleteQuery(querySpec *parser.QuerySpec, p engine.Processor) error {
+	stat.Metrics.Coordinator.CmdDelete.Increment()
 	if err := self.clusterConfiguration.CreateCheckpoint(); err != nil {
 		return err
 	}
@@ -161,6 +165,7 @@ func (self *Coordinator) runDeleteQuery(querySpec *parser.QuerySpec, p engine.Pr
 }
 
 func (self *Coordinator) runDropSeriesQuery(querySpec *parser.QuerySpec) error {
+	stat.Metrics.Coordinator.CmdDropSeries.Increment()
 	user := querySpec.User()
 	db := querySpec.Database()
 	series := querySpec.Query().DropSeriesQuery.GetTableName()
@@ -269,6 +274,10 @@ func (self *Coordinator) queryShards(querySpec *parser.QuerySpec, shards []*clus
 
 // We call this function only if we have a Select query (not continuous) or Delete query
 func (self *Coordinator) runQuerySpec(querySpec *parser.QuerySpec, p engine.Processor) error {
+	if querySpec.SelectQuery() != nil {
+		stat.Metrics.Coordinator.CmdSelect.Increment()
+	}
+
 	shards, processor, err := self.getShardsAndProcessor(querySpec, p)
 	if err != nil {
 		return err
@@ -325,6 +334,7 @@ func (self *Coordinator) WriteSeriesData(user common.User, db string, series []*
 		return common.NewAuthorizationError("User %s doesn't have write permissions for %s", user.GetName(), seriesName)
 	}
 
+	stat.Metrics.Coordinator.CmdWriteSeries.Increment()
 	err := self.CommitSeriesData(db, series, false)
 	if err != nil {
 		return err
@@ -594,6 +604,7 @@ func (self *Coordinator) runContinuousQuery(user common.User, db string, query s
 		return err
 	}
 
+	stat.Metrics.Coordinator.CmdContinuousQuery.Increment()
 	err := self.raftServer.CreateContinuousQuery(db, query)
 	if err != nil {
 		return err
@@ -606,6 +617,7 @@ func (self *Coordinator) runDropContinuousQuery(user common.User, db string, id 
 		return err
 	}
 
+	stat.Metrics.Coordinator.CmdDropContinuousQuery.Increment()
 	err := self.raftServer.DeleteContinuousQuery(db, id)
 	if err != nil {
 		return err
@@ -618,6 +630,7 @@ func (self *Coordinator) ListContinuousQueries(user common.User, db string) ([]*
 		return nil, err
 	}
 
+	stat.Metrics.Coordinator.CmdListContinuousQuery.Increment()
 	queries := self.clusterConfiguration.GetContinuousQueries(db)
 	points := []*protocol.Point{}
 

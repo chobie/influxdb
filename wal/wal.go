@@ -12,6 +12,7 @@ import (
 	logger "code.google.com/p/log4go"
 	"github.com/influxdb/influxdb/configuration"
 	"github.com/influxdb/influxdb/protocol"
+	"github.com/influxdb/influxdb/stat"
 )
 
 type WAL struct {
@@ -264,6 +265,7 @@ func (self *WAL) processEntries() {
 			x.confirmation <- &confirmation{0, self.index()}
 		case *closeEntry:
 			x.confirmation <- &confirmation{0, self.processClose(x.shouldBookmark)}
+			stat.Metrics.Wal.CloseEntry.Increment()
 			logger.Info("Closing wal")
 			return
 		default:
@@ -290,6 +292,7 @@ func (self *WAL) assignSequenceNumbers(shardId uint32, request *protocol.Request
 }
 
 func (self *WAL) processAppendEntry(e *appendEntry) {
+	stat.Metrics.Wal.AppendEntry.Increment()
 	nextRequestNumber := self.state.getNextRequestNumber()
 	e.request.RequestNumber = proto.Uint32(nextRequestNumber)
 	self.assignSequenceNumbers(e.shardId, e.request)
@@ -332,6 +335,7 @@ func (self *WAL) processAppendEntry(e *appendEntry) {
 
 func (self *WAL) processCommitEntry(e *commitEntry) {
 	logger.Debug("commiting %d for server %d", e.requestNumber, e.serverId)
+	stat.Metrics.Wal.CommitEntry.Increment()
 	self.state.commitRequestNumber(e.serverId, e.requestNumber)
 	idx := self.firstLogFile()
 	if idx == 0 {

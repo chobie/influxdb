@@ -25,6 +25,7 @@ import (
 	"github.com/influxdb/influxdb/coordinator"
 	"github.com/influxdb/influxdb/parser"
 	"github.com/influxdb/influxdb/protocol"
+	"github.com/influxdb/influxdb/stat"
 )
 
 type HttpServer struct {
@@ -163,6 +164,8 @@ func (self *HttpServer) Serve(listener net.Listener) {
 
 	// return whether the cluster is in sync or not
 	self.registerEndpoint("get", "/sync", self.isInSync)
+
+	self.registerEndpoint("get", "/stat", self.stat)
 
 	if listener == nil {
 		self.startSsl(self.p)
@@ -571,12 +574,14 @@ func getUsernameAndPassword(r *libhttp.Request) (string, string, error) {
 func (self *HttpServer) tryAsClusterAdmin(w libhttp.ResponseWriter, r *libhttp.Request, yield func(User) (int, interface{})) {
 	username, password, err := getUsernameAndPassword(r)
 	if err != nil {
+		stat.Metrics.Api.Http.Status.Add(fmt.Sprintf("%d", libhttp.StatusBadRequest), 1)
 		w.WriteHeader(libhttp.StatusBadRequest)
 		w.Write([]byte(err.Error()))
 		return
 	}
 
 	if username == "" {
+		stat.Metrics.Api.Http.Status.Add(fmt.Sprintf("%d", libhttp.StatusUnauthorized), 1)
 		w.Header().Add("WWW-Authenticate", "Basic realm=\"influxdb\"")
 		w.Header().Add("Content-Type", "text/plain")
 		w.WriteHeader(libhttp.StatusUnauthorized)
@@ -586,6 +591,7 @@ func (self *HttpServer) tryAsClusterAdmin(w libhttp.ResponseWriter, r *libhttp.R
 
 	user, err := self.userManager.AuthenticateClusterAdmin(username, password)
 	if err != nil {
+		stat.Metrics.Api.Http.Status.Add(fmt.Sprintf("%d", libhttp.StatusUnauthorized), 1)
 		w.Header().Add("WWW-Authenticate", "Basic realm=\"influxdb\"")
 		w.Header().Add("Content-Type", "text/plain")
 		w.WriteHeader(libhttp.StatusUnauthorized)
@@ -593,6 +599,7 @@ func (self *HttpServer) tryAsClusterAdmin(w libhttp.ResponseWriter, r *libhttp.R
 		return
 	}
 	statusCode, contentType, body := yieldUser(user, yield, isPretty(r))
+	stat.Metrics.Api.Http.Status.Add(fmt.Sprintf("%d", statusCode), 1)
 	if statusCode < 0 {
 		return
 	}
@@ -1226,5 +1233,13 @@ func (self *HttpServer) updateShardSpace(w libhttp.ResponseWriter, r *libhttp.Re
 func (self *HttpServer) getClusterConfiguration(w libhttp.ResponseWriter, r *libhttp.Request) {
 	self.tryAsClusterAdmin(w, r, func(u User) (int, interface{}) {
 		return libhttp.StatusOK, self.clusterConfig.SerializableConfiguration()
+	})
+}
+
+func (self *HttpServer) stat(w libhttp.ResponseWriter, r *libhttp.Request) {
+	self.tryAsClusterAdmin(w, r, func(u User) (int, interface{}) {
+		stat.Metrics.Update(self.config)
+
+		return libhttp.StatusOK, stat.Metrics
 	})
 }
